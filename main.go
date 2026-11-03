@@ -1,0 +1,88 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net"
+
+	"github.com/go-mclib/protocol/java_protocol/net_structures"
+)
+
+func main() {
+	listener, err := net.Listen("tcp", "0.0.0.0:25565")
+	if err != nil {
+		panic(err)
+	}
+	defer listener.Close()
+	fmt.Println("Minecraft 26.3 Server listening on port 25565...")
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Printf("Connection accept error: %v\n", err)
+			continue
+		}
+		go clientHandler(conn)
+	}
+}
+
+func clientHandler(conn net.Conn) {
+	defer conn.Close()
+	connReader := net_structures.NewReaderFrom(conn)
+	connWriter := net_structures.NewWriterTo(conn)
+
+	connectionState := 0 // 0 = LOGIN; 1 = CONFIG; 2 = PLAY
+	for {
+		// Read a packet
+		packetLen, err := connReader.ReadVarInt()
+		if err != nil {
+			if err != io.EOF {
+				fmt.Printf("Error reading packet length: %v\n", err)
+			}
+			return
+		}
+		packetBuffer := make([]byte, int(packetLen))
+		if _, err := io.ReadFull(conn, packetBuffer); err != nil {
+			return
+		}
+		packetReader := net_structures.NewReaderFrom(bytes.NewReader(packetBuffer))
+
+		packetID, err := getPacketID(packetReader)
+		if err != nil {
+			return
+		}
+
+		if connectionState == 0 {
+			if packetID == 0x00 {
+				protocolVersion, err := readVarInt(packetReader)
+				if err != nil {
+					return
+				}
+				if protocolVersion != 777 {
+					return
+				}
+				// Read off the server address and port
+				err = discardString(packetReader, 255) // server address
+				err = discardNumBytes(packetReader, 2) // server port, uint16
+				if err != nil {
+					return
+				}
+				// now for the intent
+				intent, err := readVarInt(packetReader)
+				if err != nil {
+					return
+				}
+				if intent == 1 {
+					// This is a status ping packet to ask for the MOTD
+					connectionState = 888
+
+				} else if intent == 2 || intent == 3 {
+					// They're connecting normally, or this is a transfer
+
+				}
+			}
+
+		}
+
+	}
+}

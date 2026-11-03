@@ -1,0 +1,166 @@
+package main
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
+
+	"github.com/go-mclib/protocol/java_protocol/net_structures"
+)
+
+func main() {
+	listener, err := net.Listen("tcp", "0.0.0.0:25565")
+	if err != nil {
+		panic(err)
+	}
+	defer listener.Close()
+
+	fmt.Println("Minecraft 26.3 Server listening on port 25565...")
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Printf("Connection accept error: %v\n", err)
+			continue
+		}
+		go handleClient(conn)
+	}
+}
+
+func handleClient(conn net.Conn) {
+	defer conn.Close()
+	remoteAddr := conn.RemoteAddr().String()
+	fmt.Printf("New connection from %s\n", remoteAddr)
+
+	// Wrap connection in the net_structures reader
+	r := net_structures.NewReaderFrom(conn)
+
+	currentState := 0 // 0 = Handshaking, 1 = Status, 2 = Login
+
+	for {
+		// 1. Read packet length (VarInt via reader)
+		_, err := r.ReadVarInt()
+		if err != nil {
+			if err != io.EOF {
+				fmt.Printf("[%s] Error reading packet length: %v\n", remoteAddr, err)
+			}
+			return
+		}
+
+		// Optional: You can read or bound packet payloads based on 'length' if needed,
+		// or let the reader stream directly depending on how the reader handles internal framing.
+		// 2. Read Packet ID
+		packetID, err := r.ReadVarInt()
+		if err != nil {
+			return
+		}
+
+		switch currentState {
+		case 0: // Handshaking State
+			if packetID != 0x00 {
+				fmt.Printf("[%s] Expected handshake packet 0x00, got 0x%x\n", remoteAddr, packetID)
+				return
+			}
+
+			protocolVersion, err := r.ReadVarInt()
+			if err != nil {
+				return
+			}
+
+			serverAddress, err := r.ReadString(0)
+			if err != nil {
+				return
+			}
+
+			// Read unsigned short port (often a uint16 or read via standard binary/reader methods)
+			portBytes := make([]byte, 2)
+			if _, err := r.Read(portBytes); err != nil {
+				return
+			}
+			serverPort := binary.BigEndian.Uint16(portBytes)
+
+			nextState, err := r.ReadVarInt()
+			if err != nil {
+				return
+			}
+
+			currentState = int(nextState)
+			fmt.Printf("[%s] Handshake -> Ver: %d, Addr: %s:%d, NextState: %d\n",
+				remoteAddr, protocolVersion, serverAddress, serverPort, currentState)
+
+		case 1: // Status State (Server List Ping)
+			if packetID == 0x00 {
+				fmt.Printf("[%s] Status Request received (MOTD ping)\n", remoteAddr)
+				// TODO: Send Status Response JSON payload back via a writer
+			}
+			return
+
+		case 2: // Login State
+			if packetID == 0x00 {
+				// 1. Read Login Start fields
+				username, err := r.ReadString(16) // max length 16 chars usually
+				if err != nil {
+					fmt.Printf("[%s] Error reading username: %v\n", remoteAddr, err)
+					return
+				}
+
+				// Modern versions (1.20.2+) also send the player UUID in Login Start
+				// Let's read the UUID bytes (16 bytes)
+				uuidBytes := make([]byte, 16)
+				if _, err := r.Read(uuidBytes); err != nil {
+					fmt.Printf("[%s] Error reading player UUID: %v\n", remoteAddr, err)
+					return
+				}
+
+				fmt.Printf("[%s] Login Start -> Username: %s, UUID bytes received\n", remoteAddr, username)
+
+				// 2. Send Login Success Packet (Clientbound Packet ID depends on protocol mapping,
+				// typically 0x02 in modern versions).
+				// For a bare skeleton to push the client into the Play state, we need to serialize
+				// a Login Success packet containing the UUID and Username.
+
+				fmt.Printf("[%s] Authenticated %s successfully! Transitioning to Play state...\n", remoteAddr, username)
+				currentState = 3 // Move to Play State
+				payload := new(bytes.Buffer)
+				writeVarInt(payload, 0x0)
+				writeString(payload, `{"text": "Cabbage kick!"}`)
+				packetLength := int32(payload.Len())
+				out := new(bytes.Buffer)
+				writeVarInt(out, packetLength) // Length prefix
+				out.Write(payload.Bytes())     // Packet ID + Data
+
+				// Send it down the wire!
+				conn.Write(out.Bytes())
+
+			} else {
+				fmt.Printf("[%s] Unexpected login packet ID: 0x%x\n", remoteAddr, packetID)
+				return
+			}
+
+		case 3: // Play State
+			// Once in Play state, game ticks, player movement, chat, and chunk packets occur!
+			fmt.Printf("[%s] Handling Play State packet ID 0x%x\n", remoteAddr, packetID)
+
+			return
+		}
+	}
+}
+
+func writeVarInt(buf *bytes.Buffer, value int32) {
+	for {
+		if (value & ^0x7F) == 0 {
+			buf.WriteByte(byte(value))
+			return
+		}
+		buf.WriteByte(byte((value & 0x7F) | 0x80))
+		value >>= 7
+	}
+}
+
+func writeString(buf *bytes.Buffer, s string) {
+	strBytes := []byte(s)
+	writeVarInt(buf, int32(len(strBytes)))
+	buf.Write(strBytes)
+}

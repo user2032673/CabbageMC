@@ -1,0 +1,4 @@
+github.com/go-mclib/nbt v0.1.0 h1:QoUm5C59yOHEhrVqCKLgJN9FC1ZUViUvboVkwOv045A=
+github.com/go-mclib/nbt v0.1.0/go.mod h1:+x+ZNoaxWssfBPMDC+7KOwitLjtePY3Wt/HqRMciRWc=
+github.com/go-mclib/protocol v0.0.0-20260917154622-8c6e1640304a h1:fy5cs0EP6nOB0JDWAwGozUei1UwNtZMskw7pnKuIPtA=
+github.com/go-mclib/protocol v0.0.0-20260917154622-8c6e1640304a/go.mod h1:efK3tqUfPkyhH0gdQp6KmUfQ/QAWW2R2E0p1zJ+08xg=
