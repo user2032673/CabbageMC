@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 
 	"github.com/go-mclib/protocol/java_protocol/net_structures"
@@ -31,57 +29,82 @@ func clientHandler(conn net.Conn) {
 	connReader := net_structures.NewReaderFrom(conn)
 	connWriter := net_structures.NewWriterTo(conn)
 
-	connectionState := 0 // 0 = LOGIN; 1 = CONFIG; 2 = PLAY
+	connectionState := ProtocolState.Handshaking
+
+	// Packet reading loop
 	for {
-		// Read a packet
-		packetLen, err := connReader.ReadVarInt()
+		packetData, err := readPacket(connReader)
 		if err != nil {
-			if err != io.EOF {
-				fmt.Printf("Error reading packet length: %v\n", err)
-			}
+			fmt.Printf("readPacket, %v\n", err)
 			return
 		}
-		packetBuffer := make([]byte, int(packetLen))
-		if _, err := io.ReadFull(conn, packetBuffer); err != nil {
-			return
-		}
-		packetReader := net_structures.NewReaderFrom(bytes.NewReader(packetBuffer))
-
-		packetID, err := getPacketID(packetReader)
+		packetID, err := getPacketID(packetData)
 		if err != nil {
+			fmt.Println("getPacketID")
 			return
 		}
+		switch connectionState {
 
-		if connectionState == 0 {
-			if packetID == 0x00 {
-				protocolVersion, err := readVarInt(packetReader)
+		case ProtocolState.Handshaking:
+			if packetID == 0x00 { // C2SHandshake
+				packet, err := readC2SHandshake(packetData)
 				if err != nil {
+					fmt.Println("decodeC2SHandshake")
 					return
 				}
-				if protocolVersion != 777 {
+				if packet.ProtocolVersion != 777 {
+					fmt.Println("proto mismatch")
 					return
 				}
-				// Read off the server address and port
-				err = discardString(packetReader, 255) // server address
-				err = discardNumBytes(packetReader, 2) // server port, uint16
-				if err != nil {
-					return
+				fmt.Printf("[+] %s:%d intent %d\n", packet.ServerAddress, packet.ServerPort, packet.Intent)
+				if packet.Intent == 1 {
+					connectionState = ProtocolState.Status
+					continue
 				}
-				// now for the intent
-				intent, err := readVarInt(packetReader)
-				if err != nil {
-					return
-				}
-				if intent == 1 {
-					// This is a status ping packet to ask for the MOTD
-					connectionState = 888
-
-				} else if intent == 2 || intent == 3 {
-					// They're connecting normally, or this is a transfer
-
+				if packet.Intent == 2 || packet.Intent == 3 {
+					connectionState = ProtocolState.Login
+					continue
 				}
 			}
+		case ProtocolState.Status:
+			if packetID == 0 { // C2SStatusRequest
+				_, err := readStatusRequest(packetData) // It doesn't actually have any fields lmao
+				if err != nil {
+					fmt.Println("decodeStatusRequest?")
+					return
+				}
+				// Well then send the status response
+				// (yes this is single routined, once we're in PLAY it's gonna be better)
+				packet := S2CStatusResponse{
+					JSONResponse: `{"version":{"name":"26.3","protocol":777},"players":{"max":20,"online":1,"sample":[{"name":"thinkofdeath","id":"4566e69f-c907-48ee-8d71-d7ba5aa00d20"}]},"description":{"text":"Hello, world!"},"favicon":null,"enforcesSecureChat":false}`,
+				}
+				writeStatusResponse(connWriter, &packet)
+			}
+			if packetID == 1 { // C2SPingRequest
+				ping, err := readPingRequest(packetData)
+				if err != nil {
+					fmt.Println("readPingRequest")
+					return
+				}
+				packet := S2CPongResponse{
+					Timestamp: ping.Timestamp,
+				}
+				err = writePongResponse(connWriter, &packet)
+				if err != nil {
+					fmt.Println("writePongResponse")
+					return
+				}
 
+			}
+		case ProtocolState.Login:
+			if packetID == 0x00 { // C2SLoginStart
+				_, err := readLoginStart(packetData)
+				if err != nil {
+					fmt.Println("readLoginStart\n")
+					return
+				}
+				
+			}
 		}
 
 	}

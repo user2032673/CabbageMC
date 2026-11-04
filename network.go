@@ -1,6 +1,12 @@
 package main
 
-import "github.com/go-mclib/protocol/java_protocol/net_structures"
+import (
+	"bytes"
+	"encoding/binary"
+	"io"
+
+	"github.com/go-mclib/protocol/java_protocol/net_structures"
+)
 
 // This is going to be the nerdiest file ever
 
@@ -26,6 +32,14 @@ func discardString(r *net_structures.PacketBuffer, maxLen int) error {
 		return err
 	}
 	return nil
+}
+
+func readUnsignedShort(r *net_structures.PacketBuffer) (uint16, error) {
+	short, err := r.ReadUint16()
+	if err != nil {
+		return 0, err
+	}
+	return uint16(short), nil
 }
 
 func readVarInt(r *net_structures.PacketBuffer) (int32, error) {
@@ -82,13 +96,17 @@ func writeString(w *net_structures.PacketBuffer, string string) error {
 	return nil
 }
 
+// ======================= DATATYPES
+
+type UUID [16]byte
+
 // ======================= HANDSHAKING
 
 type C2SHandshake struct { // PacketID 0x00; HANDSHAKING
 	ProtocolVersion int32
 	ServerAddress   string
-	ServerPort      int16
-	Intent          int // 1 = Status; 2 = Login; 3 = Transfer
+	ServerPort      uint16
+	Intent          int32 // 1 = Status; 2 = Login; 3 = Transfer
 }
 
 // ======================= STATUS
@@ -102,11 +120,11 @@ type S2CStatusResponse struct { // PacketID 0x00; STATUS
 }
 
 type C2SPingRequest struct { // PacketID 0x01; STATUS
-	Timestamp uint64 // May be any number, but vanilla clients will always use the timestamp in milliseconds.
+	Timestamp int64 // May be any number, but vanilla clients will always use the timestamp in milliseconds.
 }
 
 type S2CPongResponse struct { // PacketID 0x01; STATUS
-	Timestamp uint64 // Should match the one sent by the client.
+	Timestamp int64 // Should match the one sent by the client.
 }
 
 // ======================= LOGIN
@@ -117,7 +135,7 @@ type S2CLoginDisconnect struct { // PacketID 0x00
 
 type C2SLoginStart struct { // PacketID 0x00
 	Name       string // 16 bytes, player username
-	PlayerUUID string // Player UUID.
+	PlayerUUID UUID   // Player UUID.
 }
 
 type S2CEncryptionRequest struct { // PacketID 0x01
@@ -135,4 +153,195 @@ type C2SEncryptionResponse struct { // PacketID 0x01
 type S2CLoginSuccess struct { // PacketID 0x02
 	Profile     string // https://minecraft.wiki/w/Java_Edition_protocol/Packets#Game_Profile
 	SessionUUID string // UUID;
+}
+
+type C2SLoginPluginResponse struct { // PacketID 0x02
+	MessageID int32  // Should match ID from server.
+	Data      []byte // Any data, depending on the channel. Only present if the client understood the request. Typically this would be a sequence of fields using standard data types, but some unofficial channels have unusual formats. There is no length prefix that applies to all channel types, but the format specific to the channel may or may not include one or more length prefixes (e.g. for strings).
+}
+
+type S2CSetCompression struct { // PacketID 0x03
+	Threshold uint32 // Maximum size of a packet before it is compressed.
+}
+
+type C2SLoginAcknowledged struct { // PacketID 0x03
+	// No fields
+}
+
+type S2CLoginPluginRequest struct { // PacketID 0x04
+	MessageID int32  // Generated randomly, should be unique to the connection
+	Channel   string // Actually an Identifier(cabbageserver:kimchi)
+	Data      []byte // Any data, depending on the channel. Max length of 1048576.
+}
+
+// (yes cookies exist but that'll be for logins later)
+// ======================= CONFIG
+type S2CFinishConfiguration struct { // PacketID 0x03
+	// No fields
+}
+
+type C2SAcknowledgeFinishConfiguration struct { // PacketID 0x03
+	// No fields
+}
+
+// ======================= PLAY
+// Stubbed
+
+// ======================== HELPERS
+func readPacket(r *net_structures.PacketBuffer) (*net_structures.PacketBuffer, error) {
+	len, err := readVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	packetBuffer := make([]byte, int(len))
+	if _, err := io.ReadFull(r, packetBuffer); err != nil {
+		return nil, err
+	}
+	return net_structures.NewReaderFrom(bytes.NewReader(packetBuffer)), nil
+}
+
+var ProtocolState = struct {
+	Handshaking int
+	Status      int
+	Login       int
+	Config      int
+	Play        int
+}{
+	Handshaking: 0,
+	Status:      1,
+	Login:       2,
+	Config:      3,
+	Play:        4,
+}
+
+// ============================= HELPERS
+func readC2SHandshake(r *net_structures.PacketBuffer) (*C2SHandshake, error) {
+	protocolVersion, err := readVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+	serverAddress, err := readString(r, 255)
+	if err != nil {
+		return nil, err
+	}
+	serverPort, err := readUnsignedShort(r)
+	if err != nil {
+		return nil, err
+	}
+	intent, err := readVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	packet := C2SHandshake{
+		ProtocolVersion: protocolVersion,
+		ServerAddress:   serverAddress,
+		ServerPort:      serverPort,
+		Intent:          intent,
+	}
+	return &packet, nil
+}
+
+func readStatusRequest(r *net_structures.PacketBuffer) (*C2SStatusRequest, error) {
+	return &C2SStatusRequest{}, nil
+}
+
+func writeStatusResponse(w *net_structures.PacketBuffer, packet *S2CStatusResponse) error {
+	var temporaryBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&temporaryBuffer)
+
+	// Packet ID
+	if err := writeVarInt(temp, 0x00); err != nil {
+		return err
+	}
+
+	// Payload
+	if err := writeString(temp, packet.JSONResponse); err != nil {
+		return err
+	}
+
+	// Length prefix
+	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+		return err
+	}
+
+	// Packet contents
+	_, err := w.Write(temporaryBuffer.Bytes())
+	return err
+}
+
+func readPingRequest(r *net_structures.PacketBuffer) (*C2SPingRequest, error) {
+	pingData, err := readVarLong(r)
+	if err != nil {
+		return nil, err
+	}
+	return &C2SPingRequest{
+		Timestamp: pingData,
+	}, nil
+}
+
+func writePongResponse(w *net_structures.PacketBuffer, packet *S2CLoginSuccess) error { // TODO
+	// Create temporary buffer
+	var temporaryBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&temporaryBuffer)
+
+	// Packet ID
+	if err := writeVarInt(temp, 0x01); err != nil {
+		return err
+	}
+
+	// Timestamp (8-byte Long)
+	if err := binary.Write(temp, binary.BigEndian, packet.Timestamp); err != nil {
+		return err
+	}
+
+	// Write packet length
+	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+		return err
+	}
+
+	// Copy packet contents
+	_, err := w.Write(temporaryBuffer.Bytes())
+	return err
+}
+
+func readLoginStart(r *net_structures.PacketBuffer) (*C2SLoginStart, error) {
+	username, err := readString(r, 16)
+	uuidBytes, err := r.ReadFixedByteArray(16)
+	uuid := UUID(uuidBytes)
+	// Dirty a$$ hack but yea
+
+	if err != nil {
+		return nil, err
+	}
+	return &C2SLoginStart{
+		Name:       username,
+		PlayerUUID: uuid,
+	}, nil
+}
+
+func writePongResponse(w *net_structures.PacketBuffer, packet *S2CPongResponse) error {
+	// Create temporary buffer
+	var temporaryBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&temporaryBuffer)
+
+	// Packet ID
+	if err := writeVarInt(temp, 0x01); err != nil {
+		return err
+	}
+
+	// Timestamp (8-byte Long)
+	if err := binary.Write(temp, binary.BigEndian, packet.Timestamp); err != nil {
+		return err
+	}
+
+	// Write packet length
+	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+		return err
+	}
+
+	// Copy packet contents
+	_, err := w.Write(temporaryBuffer.Bytes())
+	return err
 }
