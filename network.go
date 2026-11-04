@@ -136,3 +136,10 @@ type S2CLoginSuccess struct { // PacketID 0x02
 	Profile     string // https://minecraft.wiki/w/Java_Edition_protocol/Packets#Game_Profile
 	SessionUUID string // UUID;
 }
+
+type C2SLoginPluginResponse struct { // PacketID 0x02
+	MessageID  int // Should match ID from server
+	Data  string // 	Prefixed Optional Varies	Any data, depending on the channel. Only present if the client understood the request. Typically this would be a sequence of fields using standard data types, but some unofficial channels have unusual formats. There is no length prefix that applies to all channel types, but the format specific to the channel may or may not include one or more length prefixes (e.g. for strings).
+}
+
+
