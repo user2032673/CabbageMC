@@ -8,12 +8,12 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", "0.0.0.0:25565")
+	listener, err := net.Listen("tcp", "0.0.0.0:25000")
 	if err != nil {
 		panic(err)
 	}
 	defer listener.Close()
-	fmt.Println("Minecraft 26.3 Server listening on port 25565...")
+	fmt.Println("Minecraft 26.3 Server listening on port 25000...")
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -76,7 +76,7 @@ func clientHandler(conn net.Conn) {
 				// Well then send the status response
 				// (yes this is single routined, once we're in PLAY it's gonna be better)
 				packet := S2CStatusResponse{
-					JSONResponse: `{"version":{"name":"26.3","protocol":777},"players":{"max":20,"online":1,"sample":[{"name":"thinkofdeath","id":"4566e69f-c907-48ee-8d71-d7ba5aa00d20"}]},"description":{"text":"Hello, world!"},"favicon":null,"enforcesSecureChat":false}`,
+					JSONResponse: `{"version":{"name":"26.3","protocol":777},"players":{"max":69,"online":420,"sample":[{"name":"evil-user2032673","id":"4566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"SIX-SEVENNNNN","id":"4566ed9f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"CultOfFountain","id":"3566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"TimothyPickering","id":"1566e69f-c907-48ee-8d71-d7ba5aa00d20"}]},"description":{"text":"The end times are near!"},"favicon":null,"enforcesSecureChat":false}`,
 				}
 				writeStatusResponse(connWriter, &packet)
 			}
@@ -118,7 +118,7 @@ func clientHandler(conn net.Conn) {
 					return
 				}
 				connectionState = ProtocolState.Config
-				wri
+
 				writeFinishConfiguration(connWriter, &S2CFinishConfiguration{})
 			}
 		}
