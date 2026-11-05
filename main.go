@@ -76,7 +76,7 @@ func clientHandler(conn net.Conn) {
 				// Well then send the status response
 				// (yes this is single routined, once we're in PLAY it's gonna be better)
 				packet := S2CStatusResponse{
-					JSONResponse: `{"version":{"name":"26.3","protocol":777},"players":{"max":69,"online":420,"sample":[{"name":"evil-user2032673","id":"4566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"SIX-SEVENNNNN","id":"4566ed9f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"CultOfFountain","id":"3566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"TimothyPickering","id":"1566e69f-c907-48ee-8d71-d7ba5aa00d20"}]},"description":{"text":"The end times are near!"},"favicon":null,"enforcesSecureChat":false}`,
+					JSONResponse: `{"version":{"name":"26.3","protocol":777},"players":{"max":69,"online":420,"sample":[{"name":"evil-user2032673","id":"4566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"SIX-SEVENNNNN","id":"4566ed9f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"UrIPIs` + conn.RemoteAddr().String() + `","id":"3566e69f-c907-48ee-8d71-d7ba5aa00d20"}, {"name":"TimothyPickering","id":"1566e69f-c907-48ee-8d71-d7ba5aa00d20"}]},"description":{"text":"The end times are near!"},"favicon":null,"enforcesSecureChat":false}`,
 				}
 				writeStatusResponse(connWriter, &packet)
 			}
