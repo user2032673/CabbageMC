@@ -1,3 +1,5 @@
+github.com/ezchr/go-mcjava v0.0.0-20261029044258-25ac9cf2bbbd h1:vUMPMdHQG0z/pfrMAZ0J318A9wabpz5XrKhoWeyHh4c=
+github.com/ezchr/go-mcjava v0.0.0-20261029044258-25ac9cf2bbbd/go.mod h1:HOaSPx0QM+jt5w6VgvlYxgZu1PpyQX0h6BR+bZ/XES0=
 github.com/go-mclib/nbt v0.1.0 h1:QoUm5C59yOHEhrVqCKLgJN9FC1ZUViUvboVkwOv045A=
 github.com/go-mclib/nbt v0.1.0/go.mod h1:+x+ZNoaxWssfBPMDC+7KOwitLjtePY3Wt/HqRMciRWc=
 github.com/go-mclib/protocol v0.0.0-20260917154622-8c6e1640304a h1:fy5cs0EP6nOB0JDWAwGozUei1UwNtZMskw7pnKuIPtA=
