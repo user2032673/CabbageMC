@@ -1,0 +1,85 @@
+package main
+
+import (
+	"bytes"
+	"io"
+
+	"github.com/go-mclib/protocol/java_protocol/net_structures"
+)
+
+// ============ CONVENIENCE
+
+var ProtocolState = struct {
+	Handshaking int
+	Status      int
+	Login       int
+	Config      int
+	Play        int
+	Dead        int
+}{
+	Handshaking: 0,
+	Status:      1,
+	Login:       2,
+	Config:      3,
+	Play:        4,
+	Dead:        -1,
+}
+
+// ============ TYPEDEFS
+
+// ============ PACKETS
+
+func readC2SHandshake(r *net_structures.PacketBuffer) (, error) {
+	protocolVersion, err := readVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+	serverAddress, err := readString(r, 255)
+	if err != nil {
+		return nil, err
+	}
+	serverPort, err := readUnsignedShort(r)
+	if err != nil {
+		return nil, err
+	}
+	intent, err := readVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	packet := C2SHandshake{
+		ProtocolVersion: protocolVersion,
+		ServerAddress:   serverAddress,
+		ServerPort:      serverPort,
+		Intent:          intent,
+	}
+	return &packet, nil
+}
+
+// ============ HELPERS
+
+func writePacket(w *net_structures.PacketBuffer, packetID int32, src *net_structures.PacketBuffer) error {
+	_, tempWriter := temporaryBuffer()
+	tempWriter.WriteVarInt(net_structures.VarInt(packetID))
+	w.WriteVarInt(net_structures.VarInt(tempWriter.Len() + src.Len()))
+	w.WriteVarInt(net_structures.VarInt(packetID))
+	_, err := io.Copy(w.Writer(), src.Reader())
+	return err
+}
+
+func readPacket(r *net_structures.PacketBuffer) (*net_structures.PacketBuffer, error) {
+	len, err := r.ReadVarInt()
+	if err != nil {
+		return nil, err
+	}
+	packetBuffer := make([]byte, int(len))
+	if _, err := io.ReadFull(r, packetBuffer); err != nil {
+		return nil, err
+	}
+	return net_structures.NewReaderFrom(bytes.NewReader(packetBuffer)), nil
+}
+
+func temporaryBuffer() (*net_structures.PacketBuffer, *net_structures.PacketBuffer) {
+	var temporaryBuffer bytes.Buffer
+	return net_structures.NewReaderFrom(&temporaryBuffer), net_structures.NewWriterTo(&temporaryBuffer)
+}
