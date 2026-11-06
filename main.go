@@ -118,8 +118,25 @@ func clientHandler(conn net.Conn) {
 					return
 				}
 				connectionState = ProtocolState.Config
+				err = writeKnownPacks(connWriter, &S2CKnownPacks{
+					KnownPacks: net_structures.PrefixedArray[net_structures.String]{
+						net_structures.String("minecraft"),
+						net_structures.String("core"),
+						net_structures.String("26.3"),
+					},
+				})
+				if err != nil {
+					fmt.Println("knownPacks\n")
+					return
+				}
+			}
+			if packetID == 0x07 {
+				// Ignore the client sent packet, this is the Known Packs response and probably has core.
 
-				writeFinishConfiguration(connWriter, &S2CFinishConfiguration{})
+				// Send registry
+				writeRegistryData(connWriter, &S2CRegistryData{
+					RegistryID: ,
+				})
 			}
 		}
 

@@ -203,6 +203,11 @@ type C2SKnownPacks struct {
 	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
 }
 
+type S2CRegistryData struct {
+	RegistryID net_structures.String                               // "minecraft:dimension_type"
+	Entries    net_structures.PrefixedArray[net_structures.String] // Array of identifiers - the NBT will be nulled
+}
+
 // ======================= PLAY
 // Stubbed
 
@@ -392,7 +397,7 @@ func readLoginAcknowledged(r *net_structures.PacketBuffer) (*C2SLoginAcknowledge
 	return &C2SLoginAcknowledged{}, nil
 }
 
-/*func writeKnownPacks(w *net_structures.PacketBuffer, packet *S2CKnownPacks) error {
+func writeKnownPacks(w *net_structures.PacketBuffer, packet *S2CKnownPacks) error {
 	// Create temporary buffer
 	var temporaryBuffer bytes.Buffer
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
@@ -402,9 +407,14 @@ func readLoginAcknowledged(r *net_structures.PacketBuffer) (*C2SLoginAcknowledge
 		return err
 	}
 
-	// Timestamp (8-byte Long)
-	if err := temp.WriteArray; err != nil {
+	// ArrayLength
+	if err := temp.WriteVarInt(net_structures.VarInt(packet.KnownPacks.Len())); err != nil {
 		return err
+	}
+	for i := range packet.KnownPacks.Len() {
+		if err := temp.WriteString(packet.KnownPacks[i]); err != nil {
+			return err
+		}
 	}
 
 	// Write packet length
@@ -416,4 +426,16 @@ func readLoginAcknowledged(r *net_structures.PacketBuffer) (*C2SLoginAcknowledge
 	_, err := w.Write(temporaryBuffer.Bytes())
 	return err
 }
-*/
+
+func writeRegistryData(w *net_structures.PacketBuffer, packet *S2CRegistryData) {
+	var temporaryBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&temporaryBuffer)
+
+	for i := range packet.Entries.Len() {
+		temp.WriteString(packet.Entries[i])
+		temp.WriteBool(false)
+	}
+
+	writeVarInt(w, temporaryBuffer.Len())
+	w.Write(temporaryBuffer.Bytes())
+}
