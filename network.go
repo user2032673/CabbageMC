@@ -673,9 +673,6 @@ func writeLogin(w *net_structures.PacketBuffer, packet *S2CLogin) error {
 		fmt.Println("writeLogin")
 		return err
 	}
-	if err != nil {
-		return err
-	}
 	if packet.HasDeathLocation {
 		temp.WriteString(net_structures.String(packet.DeathDimensionName))
 		temp.WritePosition(packet.DeathLocation)
