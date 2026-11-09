@@ -224,10 +224,15 @@ func clientHandler(conn net.Conn, registries map[string]map[string]json.RawMessa
 					return
 				}
 
+				err := writePlayerInfoUpdate()
+
 			}
 		case ProtocolState.Play:
 			if packetID == 0x00 { // C2SConfirmTeleportation
 				// Discard for now
+
+			}
+			if packetID == 0x1F { // C2SSetPlayerPos&Rotation
 
 			}
 
