@@ -3,8 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"io"
+	"os"
+	"sort"
 
+	"github.com/go-mclib/nbt"
 	"github.com/go-mclib/protocol/java_protocol/net_structures"
 )
 
@@ -44,48 +49,6 @@ func readString(r *net_structures.PacketBuffer, maxLen int) (string, error) {
 		return "", err
 	}
 	return string(str), nil
-}
-
-func discardNumBytes(r *net_structures.PacketBuffer, numBytes int) error {
-	for range numBytes {
-		_, err := r.ReadByte()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func writeVarInt(w *net_structures.PacketBuffer, int int) error {
-	err := w.WriteVarInt(net_structures.VarInt(int))
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func writeUUID(w *net_structures.PacketBuffer, uuid UUID) error {
-	err := w.WriteUUID(net_structures.UUID(uuid))
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func writeVarLong(w *net_structures.PacketBuffer, long int64) error {
-	err := w.WriteVarLong(net_structures.VarLong(long))
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func writeString(w *net_structures.PacketBuffer, string string) error {
-	err := w.WriteString(net_structures.String(string))
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func writeGameProfile(w *net_structures.PacketBuffer, profile Profile) error {
@@ -185,6 +148,46 @@ type S2CLoginPluginRequest struct { // PacketID 0x04
 	Data      []byte // Any data, depending on the channel. Max length of 1048576.
 }
 
+type S2CLogin struct { // PacketID 0x32
+	// NOT the same as Login in the earlier phase. THis is post-configuration
+	EntityID            int32
+	IsHardcore          bool
+	DimensionNames      net_structures.PrefixedArray[net_structures.String] // prefixed array of identifiers actually, minecraft:overworld, etc.
+	MaxPlayers          int32                                               // ignored now
+	ViewDistance        int32                                               // 2-32
+	SimulationDistance  int32                                               // whether or not to pause entity death animations beyond
+	ReducedDebugInfo    bool
+	EnableRespawnScreen bool                    // if false, doImmediateRespawn
+	DoLimitedCrafting   bool                    // Unused
+	DimensionID         int32                   // DimensionID of the dimension being spawned into. Whichever comes first alphabetically in registries.json
+	DimensionName       string                  // Name of the dimension they're being spawned into, identifier, "minecraft:overworld"
+	HashedSeed          net_structures.VarLong  // first 8 bytes of sha256sum(world_seed), for client side biome noise apparently
+	GameMode            int32                   // 0=SURVIVAL;1=CREATIVE;2=ADVENTURE;3=SPECTATOR
+	PreviousGameMode    int32                   // For f3 n: 0=undefined;1=SURVIVAL;2=CREATIVE;3=ADVENTURE;4=SPECTATOR
+	IsDebug             bool                    // If it's a debug mode world with the crazy blocks
+	IsFlat              bool                    // flat worlds have different void fog and a horizon at Y=0 instead of Y=63.
+	HasDeathLocation    bool                    // If true, then the next two fields are present.
+	DeathDimensionName  string                  // Name of the dimension the player died in. Can be anything if HasDeathLocation = False
+	DeathLocation       net_structures.Position // This field is packed with info: first 26 bits = X; next 26 bits = Z; last 12 bits = Y, all signed. Nothing if HasDeathLocation=false
+	PortalCooldown      int32                   // The number of ticks until the player can use the last used portal again. Looks like it's an attempt to fix MC-180.
+	SeaLevel            int32                   // Y level of sea level duh
+	OnlineMode          bool                    // No clue why this should or shouldn't be set - message signing probs
+	EnforcesSecureChat  bool                    // Nevermind that ig ^
+}
+
+type S2CSyncPlayerPosition struct { // PacketID 0x49(73)
+	TeleportID int32   // basically a cookie client needs to send back to confirm it
+	X          float64 // Absolute or relative position, depending on Flags. will be cast to Double
+	Y          float64
+	Z          float64
+	VelocityX  float64
+	VelocityY  float64
+	VelocityZ  float64
+	Yaw        float32 // Absolute or relative rotation on the X axis, in degrees.
+	Pitch      float32 // Absolute or relative rotation on the X axis, in degrees.
+	Flags      uint32  // Mask: In order bit 7 down: Rotate velocity according to the change in rotation; Relative Velocity Z; Y; X; Relative Pitch; Yaw; Relative Z; Y; X
+}
+
 // (yes cookies exist but that'll be for logins later)
 // ======================= CONFIG
 type S2CFinishConfiguration struct { // PacketID 0x03
@@ -203,9 +206,14 @@ type C2SKnownPacks struct {
 	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
 }
 
+type RegistryEntry struct {
+	ID   string
+	Data json.RawMessage
+}
+
 type S2CRegistryData struct {
-	RegistryID net_structures.String                               // "minecraft:dimension_type"
-	Entries    net_structures.PrefixedArray[net_structures.String] // Array of identifiers - the NBT will be nulled
+	RegistryID string
+	Entries    []RegistryEntry
 }
 
 // ======================= PLAY
@@ -272,21 +280,22 @@ func readStatusRequest(r *net_structures.PacketBuffer) (*C2SStatusRequest, error
 }
 
 func writeStatusResponse(w *net_structures.PacketBuffer, packet *S2CStatusResponse) error {
+	fmt.Println("S2C: StatusResponse")
 	var temporaryBuffer bytes.Buffer
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
 
 	// Packet ID
-	if err := writeVarInt(temp, 0x00); err != nil {
+	if err := temp.WriteVarInt(net_structures.VarInt(0x00)); err != nil {
 		return err
 	}
 
 	// Payload
-	if err := writeString(temp, packet.JSONResponse); err != nil {
+	if err := temp.WriteString(net_structures.String(packet.JSONResponse)); err != nil {
 		return err
 	}
 
 	// Length prefix
-	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+	if err := w.WriteVarInt(net_structures.VarInt(temporaryBuffer.Len())); err != nil {
 		return err
 	}
 
@@ -326,7 +335,7 @@ func writePongResponse(w *net_structures.PacketBuffer, packet *S2CPongResponse) 
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
 
 	// Packet ID
-	if err := writeVarInt(temp, 0x01); err != nil {
+	if err := temp.WriteVarInt(net_structures.VarInt(0x01)); err != nil {
 		return err
 	}
 
@@ -336,7 +345,7 @@ func writePongResponse(w *net_structures.PacketBuffer, packet *S2CPongResponse) 
 	}
 
 	// Write packet length
-	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+	if err := w.WriteVarInt(net_structures.VarInt(temporaryBuffer.Len())); err != nil {
 		return err
 	}
 
@@ -346,17 +355,18 @@ func writePongResponse(w *net_structures.PacketBuffer, packet *S2CPongResponse) 
 }
 
 func writeFinishConfiguration(w *net_structures.PacketBuffer, packet *S2CFinishConfiguration) error {
+	fmt.Println("S2C: FinishConfiguration")
 	// Create temporary buffer
 	var temporaryBuffer bytes.Buffer
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
 
 	// Packet ID
-	if err := writeVarInt(temp, 0x03); err != nil {
+	if err := temp.WriteVarInt(net_structures.VarInt(0x03)); err != nil {
 		return err
 	}
 
 	// Write packet length
-	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+	if err := w.WriteVarInt(net_structures.VarInt(temporaryBuffer.Len())); err != nil {
 		return err
 	}
 
@@ -366,12 +376,13 @@ func writeFinishConfiguration(w *net_structures.PacketBuffer, packet *S2CFinishC
 }
 
 func writeLoginSuccess(w *net_structures.PacketBuffer, packet *S2CLoginSuccess) error {
+	fmt.Println("S2C: LoginSuccess")
 	// Create temporary buffer
 	var temporaryBuffer bytes.Buffer
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
 
 	// Packet ID
-	if err := writeVarInt(temp, 0x02); err != nil {
+	if err := temp.WriteVarInt(0x02); err != nil {
 		return err
 	}
 	// Write the profile itself
@@ -379,12 +390,12 @@ func writeLoginSuccess(w *net_structures.PacketBuffer, packet *S2CLoginSuccess) 
 		return err
 	}
 
-	if err := writeUUID(temp, packet.SessionUUID); err != nil {
+	if err := temp.WriteUUID(net_structures.UUID(packet.SessionUUID)); err != nil {
 		return err
 	}
 	// Write packet length
 
-	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+	if err := w.WriteVarInt(net_structures.VarInt(temporaryBuffer.Len())); err != nil {
 		return err
 	}
 
@@ -398,17 +409,18 @@ func readLoginAcknowledged(r *net_structures.PacketBuffer) (*C2SLoginAcknowledge
 }
 
 func writeKnownPacks(w *net_structures.PacketBuffer, packet *S2CKnownPacks) error {
+	fmt.Println("S2C: KnownPacks")
 	// Create temporary buffer
 	var temporaryBuffer bytes.Buffer
 	temp := net_structures.NewWriterTo(&temporaryBuffer)
 
 	// Packet ID
-	if err := writeVarInt(temp, 0x0F); err != nil {
+	if err := temp.WriteVarInt(net_structures.VarInt(0x0F)); err != nil {
 		return err
 	}
 
 	// ArrayLength
-	if err := temp.WriteVarInt(net_structures.VarInt(packet.KnownPacks.Len())); err != nil {
+	if err := temp.WriteVarInt(net_structures.VarInt(packet.KnownPacks.Len() / 3)); err != nil {
 		return err
 	}
 	for i := range packet.KnownPacks.Len() {
@@ -418,7 +430,7 @@ func writeKnownPacks(w *net_structures.PacketBuffer, packet *S2CKnownPacks) erro
 	}
 
 	// Write packet length
-	if err := writeVarInt(w, temporaryBuffer.Len()); err != nil {
+	if err := w.WriteVarInt(net_structures.VarInt(temporaryBuffer.Len())); err != nil {
 		return err
 	}
 
@@ -427,15 +439,340 @@ func writeKnownPacks(w *net_structures.PacketBuffer, packet *S2CKnownPacks) erro
 	return err
 }
 
-func writeRegistryData(w *net_structures.PacketBuffer, packet *S2CRegistryData) {
-	var temporaryBuffer bytes.Buffer
-	temp := net_structures.NewWriterTo(&temporaryBuffer)
-
-	for i := range packet.Entries.Len() {
-		temp.WriteString(packet.Entries[i])
-		temp.WriteBool(false)
+func loadRegistries(path string) (map[string]map[string]json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
 
-	writeVarInt(w, temporaryBuffer.Len())
-	w.Write(temporaryBuffer.Bytes())
+	var registries map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(data, &registries); err != nil {
+		return nil, err
+	}
+
+	return registries, nil
+}
+
+func loadTags(path string) (map[string]map[string]json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var tags map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(data, &tags); err != nil {
+		return nil, err
+	}
+
+	return tags, nil
+}
+
+func writeRegistryData(w *net_structures.PacketBuffer, registryID string, entries map[string]json.RawMessage) error {
+	fmt.Println("S2C: RegistryData")
+	var packet bytes.Buffer
+	temp := net_structures.NewWriterTo(&packet)
+
+	// Packet ID: Configuration / Registry Data
+	if err := temp.WriteVarInt(net_structures.VarInt(0x07)); err != nil {
+		return err
+	}
+
+	// Registry identifier
+	if err := temp.WriteString(net_structures.String(registryID)); err != nil {
+		return err
+	}
+
+	// Sort entries for deterministic registry IDs.
+	// IMPORTANT: Use the same ordering in your server's registry.
+	ids := make([]string, 0, len(entries))
+	for id := range entries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	// Entry count
+	if err := temp.WriteVarInt(net_structures.VarInt(len(ids))); err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		// Entry identifier
+		if err := temp.WriteString(net_structures.String(id)); err != nil {
+			return err
+		}
+
+		// We have inline NBT data.
+		if err := temp.WriteBool(true); err != nil {
+			return err
+		}
+
+		// JSON -> NBT Tag
+		tag, err := nbt.FromJSON(entries[id])
+		if err != nil {
+			return fmt.Errorf("NBT conversion for %s: %w", id, err)
+		}
+
+		// NBT Tag -> network NBT bytes
+		nbtData, err := nbt.EncodeNetwork(tag)
+		if err != nil {
+			return fmt.Errorf("NBT encoding for %s: %w", id, err)
+		}
+
+		// Write raw NBT bytes. NO length prefix!
+		if _, err := temp.Write(nbtData); err != nil {
+			return err
+		}
+	}
+
+	// Packet length prefix
+	if err := w.WriteVarInt(net_structures.VarInt(packet.Len())); err != nil {
+		return err
+	}
+
+	// Send packet
+	_, err := w.Write(packet.Bytes())
+	return err
+}
+
+func writeTagData(w *net_structures.PacketBuffer, registry string, tags map[string]json.RawMessage) error {
+	fmt.Println("S2C: TagData")
+	var packet bytes.Buffer
+	temp := net_structures.NewWriterTo(&packet)
+
+	// Packet ID: Update Tags (0x0E)
+	if err := temp.WriteVarInt(net_structures.VarInt(0x0E)); err != nil {
+		return err
+	}
+
+	// Number of tagged registries: 1
+	if err := temp.WriteVarInt(net_structures.VarInt(1)); err != nil {
+		return err
+	}
+
+	// Registry identifier
+	if err := temp.WriteString(net_structures.String(registry)); err != nil {
+		return err
+	}
+
+	// Number of tags
+	tagIDs := make([]string, 0, len(tags))
+	for id := range tags {
+		tagIDs = append(tagIDs, id)
+	}
+	sort.Strings(tagIDs)
+
+	if err := temp.WriteVarInt(net_structures.VarInt(len(tagIDs))); err != nil {
+		return err
+	}
+
+	for _, id := range tagIDs {
+		// Tag identifier
+		if err := temp.WriteString(net_structures.String(id)); err != nil {
+			return err
+		}
+
+		// TODO: Parse actual numeric entry IDs from tags[id].
+		// Temporary stub: every tag contains zero entries.
+		if err := temp.WriteVarInt(net_structures.VarInt(0)); err != nil {
+			return err
+		}
+	}
+
+	// Packet length prefix
+	if err := w.WriteVarInt(net_structures.VarInt(packet.Len())); err != nil {
+		return err
+	}
+
+	// Write packet contents
+	_, err := w.Write(packet.Bytes())
+	return err
+}
+
+func writeLogin(w *net_structures.PacketBuffer, packet *S2CLogin) error {
+	fmt.Println("S2C: Login")
+	var tempBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&tempBuffer)
+
+	// Packet ID: Play (0x32), or 50
+	if err := temp.WriteVarInt(net_structures.VarInt(0x32)); err != nil {
+		return err
+	}
+	temp.WriteInt32(net_structures.Int32(packet.EntityID))
+	temp.WriteBool(net_structures.Boolean(packet.IsHardcore))
+	temp.WriteVarInt(net_structures.VarInt(len(packet.DimensionNames)))
+	for _, dimName := range packet.DimensionNames {
+		temp.WriteString(dimName)
+	}
+	err := temp.WriteVarInt(net_structures.VarInt(packet.MaxPlayers))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.ViewDistance))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.SimulationDistance))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.ReducedDebugInfo))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.EnableRespawnScreen))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.DoLimitedCrafting))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.DimensionID))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteString(net_structures.String(packet.DimensionName))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = binary.Write(temp, binary.BigEndian, packet.HashedSeed)
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.GameMode))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.PreviousGameMode))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.IsDebug))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.IsFlat))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.HasDeathLocation))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if packet.HasDeathLocation {
+		temp.WriteString(net_structures.String(packet.DeathDimensionName))
+		temp.WritePosition(packet.DeathLocation)
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.PortalCooldown))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteVarInt(net_structures.VarInt(packet.SeaLevel))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.OnlineMode))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	err = temp.WriteBool(net_structures.Boolean(packet.EnforcesSecureChat))
+	if err != nil {
+		fmt.Println("writeLogin")
+		return err
+	}
+	if err := w.WriteVarInt(net_structures.VarInt(tempBuffer.Len())); err != nil {
+		return err
+	}
+
+	// Write packet contents
+	_, err = w.Write(tempBuffer.Bytes())
+	return err
+}
+
+func writeSyncPlayerPosition(w *net_structures.PacketBuffer, packet *S2CSyncPlayerPosition) error {
+	fmt.Println("S2C: SyncPlayerPosition")
+	var tempBuffer bytes.Buffer
+	temp := net_structures.NewWriterTo(&tempBuffer)
+
+	// Packet ID: Synchronize Player Position (0x49), or 73
+	if err := temp.WriteVarInt(net_structures.VarInt(0x49)); err != nil {
+		return err
+	}
+	err := temp.WriteVarInt(net_structures.VarInt(packet.TeleportID))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.X))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.Y))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.Z))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityX))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityY))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityZ))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat32(net_structures.Float32(packet.Yaw))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteFloat32(net_structures.Float32(packet.Pitch))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+	err = temp.WriteInt32(net_structures.Int32(packet.Flags))
+	if err != nil {
+		fmt.Println("ERRORRRRR")
+		return err
+	}
+
+	if err := w.WriteVarInt(net_structures.VarInt(tempBuffer.Len())); err != nil {
+		return err
+	}
+	// Write packet contents
+	_, err = w.Write(tempBuffer.Bytes())
+	return err
 }

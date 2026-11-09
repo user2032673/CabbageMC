@@ -1,13 +1,20 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 
 	"github.com/go-mclib/protocol/java_protocol/net_structures"
 )
 
 func main() {
+	registries, err := loadRegistries("registries.json")
+	tags, err := loadTags("tags.json")
+	if err != nil {
+		panic(err)
+	}
 	listener, err := net.Listen("tcp", "0.0.0.0:25000")
 	if err != nil {
 		panic(err)
@@ -20,11 +27,11 @@ func main() {
 			fmt.Printf("Connection accept error: %v\n", err)
 			continue
 		}
-		go clientHandler(conn)
+		go clientHandler(conn, registries, tags)
 	}
 }
 
-func clientHandler(conn net.Conn) {
+func clientHandler(conn net.Conn, registries map[string]map[string]json.RawMessage, tags map[string]map[string]json.RawMessage) {
 	defer conn.Close()
 	connReader := net_structures.NewReaderFrom(conn)
 	connWriter := net_structures.NewWriterTo(conn)
@@ -130,15 +137,12 @@ func clientHandler(conn net.Conn) {
 					return
 				}
 			}
+
+		case ProtocolState.Config:
 			if packetID == 0x07 {
 				// Ignore the client sent packet, this is the Known Packs response and probably has core.
 
-				// Send registry
-				writeRegistryData(connWriter, &S2CRegistryData{
-					RegistryID: ,
-				})
-			}
-		}
+				registryIDs := make([]string, 0, len(registries))
 
 				for id := range registries {
 					registryIDs = append(registryIDs, id)
@@ -173,7 +177,7 @@ func clientHandler(conn net.Conn) {
 			if packetID == 0x03 {
 				connectionState = ProtocolState.Play
 				// Ignore the client sent packet there's nothing in it
-				writeLogin(connWriter, &S2CLogin{
+				err := writeLogin(connWriter, &S2CLogin{
 					EntityID:            1,
 					IsHardcore:          true,
 					DimensionNames:      net_structures.PrefixedArray[net_structures.String]{"minecraft:overworld"},
@@ -189,11 +193,43 @@ func clientHandler(conn net.Conn) {
 					GameMode:            0,
 					PreviousGameMode:    0,
 					IsDebug:             false,
-					Is
+					IsFlat:              true,
+					HasDeathLocation:    false,
+					DeathDimensionName:  "cabbage:cabbage_fields",
+					DeathLocation:       net_structures.Position{X: 69, Y: 69, Z: 69},
+					PortalCooldown:      0,
+					SeaLevel:            0,
+					OnlineMode:          false,
+					EnforcesSecureChat:  false,
+				}) // MEGA CHUNGUSSS
+				if err != nil {
+					fmt.Println("writeLogin")
+					return
+				}
+
+				err = writeSyncPlayerPosition(connWriter, &S2CSyncPlayerPosition{
+					TeleportID: 0,
+					X:          0,
+					Y:          0,
+					Z:          0,
+					VelocityX:  0,
+					VelocityY:  0,
+					VelocityZ:  0,
+					Yaw:        0,
+					Pitch:      0,
+					Flags:      0,
 				})
+				if err != nil {
+					fmt.Println("writeSyncPlayerPos")
+					return
+				}
 
 			}
 		case ProtocolState.Play:
+			if packetID == 0x00 { // C2SConfirmTeleportation
+				// Discard for now
+
+			}
 
 		}
 	}
