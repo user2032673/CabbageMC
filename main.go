@@ -224,7 +224,7 @@ func clientHandler(conn net.Conn, registries map[string]map[string]json.RawMessa
 					return
 				}
 
-				err := writePlayerInfoUpdate()
+				err = writePlayerInfoUpdate(connWriter)
 
 			}
 		case ProtocolState.Play:

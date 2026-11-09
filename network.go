@@ -148,6 +148,35 @@ type S2CLoginPluginRequest struct { // PacketID 0x04
 	Data      []byte // Any data, depending on the channel. Max length of 1048576.
 }
 
+// (yes cookies exist but that'll be for logins later)
+// ======================= CONFIG
+type S2CFinishConfiguration struct { // PacketID 0x03
+	// No fields
+}
+
+type C2SAcknowledgeFinishConfiguration struct { // PacketID 0x03
+	// No fields
+}
+
+type S2CKnownPacks struct {
+	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
+}
+
+type C2SKnownPacks struct {
+	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
+}
+
+type RegistryEntry struct {
+	ID   string
+	Data json.RawMessage
+}
+
+type S2CRegistryData struct {
+	RegistryID string
+	Entries    []RegistryEntry
+}
+
+// ======================= PLAY
 type S2CLogin struct { // PacketID 0x32
 	// NOT the same as Login in the earlier phase. THis is post-configuration
 	EntityID            int32
@@ -188,36 +217,11 @@ type S2CSyncPlayerPosition struct { // PacketID 0x49(73)
 	Flags      uint32  // Mask: In order bit 7 down: Rotate velocity according to the change in rotation; Relative Velocity Z; Y; X; Relative Pitch; Yaw; Relative Z; Y; X
 }
 
-// (yes cookies exist but that'll be for logins later)
-// ======================= CONFIG
-type S2CFinishConfiguration struct { // PacketID 0x03
-	// No fields
-}
+type S2CPlayerInfoUpdate struct {
+	Actions uint8 // https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Info_Update
+	Players []
 
-type C2SAcknowledgeFinishConfiguration struct { // PacketID 0x03
-	// No fields
 }
-
-type S2CKnownPacks struct {
-	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
-}
-
-type C2SKnownPacks struct {
-	KnownPacks net_structures.PrefixedArray[net_structures.String] // Element 0: "minecraft"; Element 1: "core"; Element 2: "26.3"
-}
-
-type RegistryEntry struct {
-	ID   string
-	Data json.RawMessage
-}
-
-type S2CRegistryData struct {
-	RegistryID string
-	Entries    []RegistryEntry
-}
-
-// ======================= PLAY
-// Stubbed
 
 // ======================== HELPERS
 func readPacket(r *net_structures.PacketBuffer) (*net_structures.PacketBuffer, error) {
@@ -783,61 +787,11 @@ func writePlayerInfoUpdate(w *net_structures.PacketBuffer, packet *S2CPlayerInfo
 	if err := temp.WriteVarInt(net_structures.VarInt(0x49)); err != nil {
 		return err
 	}
-	err := temp.WriteVarInt(net_structures.VarInt(packet.TeleportID))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.X))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.Y))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.Z))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityX))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityY))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat64(net_structures.Float64(packet.VelocityZ))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat32(net_structures.Float32(packet.Yaw))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteFloat32(net_structures.Float32(packet.Pitch))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
-	err = temp.WriteInt32(net_structures.Int32(packet.Flags))
-	if err != nil {
-		fmt.Println("ERRORRRRR")
-		return err
-	}
 
 	if err := w.WriteVarInt(net_structures.VarInt(tempBuffer.Len())); err != nil {
 		return err
 	}
 	// Write packet contents
-	_, err = w.Write(tempBuffer.Bytes())
+	_, err := w.Write(tempBuffer.Bytes())
 	return err
 }
