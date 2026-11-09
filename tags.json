@@ -1,0 +1,90 @@
+{
+  "minecraft:item": {
+    "minecraft:enchantable/trident": [],
+    "minecraft:enchantable/fishing": [],
+    "minecraft:enchantable/lunge": [],
+    "minecraft:enchantable/durability": [],
+    "minecraft:enchantable/crossbow": [],
+    "minecraft:enchantable/bow": [],
+    "minecraft:enchantable/armor": [],
+    "minecraft:enchantable/head_armor": [],
+    "minecraft:enchantable/melee_weapon": [],
+    "minecraft:enchantable/weapon": [],
+    "minecraft:enchantable/mining_loot": [],
+    "minecraft:enchantable/foot_armor": [],
+    "minecraft:enchantable/sweeping": [],
+    "minecraft:enchantable/equippable": [],
+    "minecraft:enchantable/mace": [],
+    "minecraft:enchantable/mining": [],
+    "minecraft:enchantable/fire_aspect": [],
+    "minecraft:enchantable/sharp_weapon": [],
+    "minecraft:enchantable/leg_armor": [],
+    "minecraft:enchantable/chest_armor": [],
+    "minecraft:enchantable/vanishing": [],
+    "minecraft:sulfur_cube_archetype/bouncy": [],
+    "minecraft:sulfur_cube_archetype/explosive": [],
+    "minecraft:sulfur_cube_archetype/fast_flat": [],
+    "minecraft:sulfur_cube_archetype/fast_sliding": [],
+    "minecraft:sulfur_cube_archetype/high_resistance": [],
+    "minecraft:sulfur_cube_archetype/hot": [],
+    "minecraft:sulfur_cube_archetype/light": [],
+    "minecraft:sulfur_cube_archetype/regular": [],
+    "minecraft:sulfur_cube_archetype/slow_bouncy": [],
+    "minecraft:sulfur_cube_archetype/slow_flat": [],
+    "minecraft:sulfur_cube_archetype/slow_sliding": [],
+    "minecraft:sulfur_cube_archetype/sticky": []
+  },
+  "minecraft:entity_type": {
+    "minecraft:sensitive_to_bane_of_arthropods": [],
+    "minecraft:sensitive_to_impaling": [],
+    "minecraft:arrows": [],
+    "minecraft:sensitive_to_smite": []
+  },
+  "minecraft:block": {
+    "minecraft:infiniburn_overworld": [],
+    "minecraft:infiniburn_end": [],
+    "minecraft:infiniburn_nether": [],
+    "minecraft:lightning_rods": [],
+    "minecraft:soul_speed_blocks": [],
+    "minecraft:blocks_wind_charge_explosions": []
+  },
+  "minecraft:damage_type": {
+    "minecraft:burn_from_stepping": [],
+    "minecraft:bypasses_invulnerability": [],
+    "minecraft:is_explosion": [],
+    "minecraft:is_fall": [],
+    "minecraft:bypasses_shield": [],
+    "minecraft:is_fire": [],
+    "minecraft:is_projectile": []
+  },
+  "minecraft:dialog": {
+    "minecraft:pause_screen_additions": [],
+    "minecraft:quick_actions": []
+  },
+  "minecraft:enchantment": {
+    "minecraft:exclusive_set/armor": [],
+    "minecraft:exclusive_set/boots": [],
+    "minecraft:exclusive_set/bow": [],
+    "minecraft:exclusive_set/crossbow": [],
+    "minecraft:exclusive_set/damage": [],
+    "minecraft:exclusive_set/mining": [],
+    "minecraft:exclusive_set/riptide": []
+  },
+  "minecraft:timeline": {
+    "minecraft:in_end": [],
+    "minecraft:in_nether": [],
+    "minecraft:in_overworld": []
+  },
+  "minecraft:banner_pattern": {
+    "minecraft:pattern_item/bordure_indented": [],
+    "minecraft:pattern_item/creeper": [],
+    "minecraft:pattern_item/field_masoned": [],
+    "minecraft:pattern_item/flow": [],
+    "minecraft:pattern_item/flower": [],
+    "minecraft:pattern_item/globe": [],
+    "minecraft:pattern_item/guster": [],
+    "minecraft:pattern_item/mojang": [],
+    "minecraft:pattern_item/piglin": [],
+    "minecraft:pattern_item/skull": []
+  }
+}

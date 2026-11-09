@@ -140,5 +140,61 @@ func clientHandler(conn net.Conn) {
 			}
 		}
 
+				for id := range registries {
+					registryIDs = append(registryIDs, id)
+				}
+
+				sort.Strings(registryIDs)
+
+				for _, id := range registryIDs {
+					if err := writeRegistryData(connWriter, id, registries[id]); err != nil {
+						fmt.Println(err)
+						return
+					}
+				}
+				// Tags time
+				tagIDs := make([]string, 0, len(tags))
+
+				for id := range tags {
+					tagIDs = append(tagIDs, id)
+				}
+
+				sort.Strings(tagIDs)
+
+				for _, id := range tagIDs {
+					if err := writeTagData(connWriter, id, tags[id]); err != nil {
+						fmt.Println(err)
+						return
+					}
+				}
+				writeFinishConfiguration(connWriter, &S2CFinishConfiguration{})
+
+			}
+			if packetID == 0x03 {
+				connectionState = ProtocolState.Play
+				// Ignore the client sent packet there's nothing in it
+				writeLogin(connWriter, &S2CLogin{
+					EntityID:            1,
+					IsHardcore:          true,
+					DimensionNames:      net_structures.PrefixedArray[net_structures.String]{"minecraft:overworld"},
+					MaxPlayers:          0,
+					ViewDistance:        10,
+					SimulationDistance:  10,
+					ReducedDebugInfo:    false,
+					EnableRespawnScreen: true,
+					DoLimitedCrafting:   false,
+					DimensionID:         0,
+					DimensionName:       "minecraft:overworld",
+					HashedSeed:          net_structures.VarLong(0),
+					GameMode:            0,
+					PreviousGameMode:    0,
+					IsDebug:             false,
+					Is
+				})
+
+			}
+		case ProtocolState.Play:
+
+		}
 	}
 }
